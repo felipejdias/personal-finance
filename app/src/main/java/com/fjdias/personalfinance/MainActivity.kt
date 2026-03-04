@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,11 +24,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fjdias.personalfinance.ui.theme.PersonalFinanceTheme
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlin.math.abs
 
 enum class FinanceScreen {
     Transactions, Summary, Breakdown, Categories
@@ -50,6 +57,7 @@ class MainActivity : ComponentActivity() {
                 var selectedMonth by remember { mutableStateOf<Int?>(null) }
                 var selectedCategoryName by remember { mutableStateOf<String?>(null) }
                 var showDeleteDialog by remember { mutableStateOf(false) }
+                var showAddTransactionDialog by remember { mutableStateOf(false) }
                 var currentScreen by remember { mutableStateOf(FinanceScreen.Transactions) }
 
                 val filePickerLauncher = rememberLauncherForActivityResult(
@@ -58,11 +66,15 @@ class MainActivity : ComponentActivity() {
                     uri?.let { viewModel.importCsv(context, it) }
                 }
 
-                val filteredTransactions = allTransactions.filter {
+                val transactionsForList = allTransactions.filter {
                     val matchesSearch = it.title.contains(searchQuery, ignoreCase = true)
                     val matchesMonth = selectedMonth == null || it.date.monthValue == selectedMonth
                     val matchesCategory = selectedCategoryName == null || it.categoryName == selectedCategoryName
                     matchesSearch && matchesMonth && matchesCategory
+                }
+
+                val transactionsForAnalytics = allTransactions.filter {
+                    selectedMonth == null || it.date.monthValue == selectedMonth
                 }
 
                 if (showDeleteDialog) {
@@ -82,6 +94,18 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                if (showAddTransactionDialog) {
+                    TransactionDialog(
+                        title = "Nova Transação",
+                        categories = allCategories,
+                        onDismiss = { showAddTransactionDialog = false },
+                        onConfirm = { t, a, c, d ->
+                            viewModel.addManualTransaction(t, a, c, d)
+                            showAddTransactionDialog = false
+                        }
+                    )
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     topBar = {
@@ -97,16 +121,29 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             )
-                            if (currentScreen == FinanceScreen.Transactions) {
-                                SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
-                                FilterSection(
+                            
+                            if (currentScreen != FinanceScreen.Categories) {
+                                MonthFilter(
                                     selectedMonth = selectedMonth,
                                     onMonthSelected = { selectedMonth = it },
+                                    transactions = allTransactions
+                                )
+                            }
+
+                            if (currentScreen == FinanceScreen.Transactions) {
+                                SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
+                                CategoryFilter(
                                     selectedCategory = selectedCategoryName,
                                     onCategorySelected = { selectedCategoryName = it },
-                                    transactions = allTransactions,
                                     categories = allCategories
                                 )
+                            }
+                        }
+                    },
+                    floatingActionButton = {
+                        if (currentScreen == FinanceScreen.Transactions) {
+                            FloatingActionButton(onClick = { showAddTransactionDialog = true }) {
+                                Icon(Icons.Default.Add, contentDescription = "Adicionar Transação")
                             }
                         }
                     },
@@ -141,9 +178,9 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                         when (currentScreen) {
-                            FinanceScreen.Transactions -> TransactionsListScreen(filteredTransactions, allCategories, viewModel)
-                            FinanceScreen.Summary -> SummaryScreen(filteredTransactions)
-                            FinanceScreen.Breakdown -> BreakdownScreen(filteredTransactions)
+                            FinanceScreen.Transactions -> TransactionsListScreen(transactionsForList, allCategories, viewModel)
+                            FinanceScreen.Summary -> SummaryScreen(transactionsForAnalytics)
+                            FinanceScreen.Breakdown -> BreakdownScreen(transactionsForAnalytics)
                             FinanceScreen.Categories -> CategoriesScreen(allCategories, viewModel)
                         }
                     }
@@ -153,65 +190,96 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilterSection(
-    selectedMonth: Int?,
-    onMonthSelected: (Int?) -> Unit,
-    selectedCategory: String?,
-    onCategorySelected: (String?) -> Unit,
-    transactions: List<Transaction>,
-    categories: List<Category>
+fun TransactionDialog(
+    title: String,
+    initialTransaction: Transaction? = null,
+    categories: List<Category>,
+    onDismiss: () -> Unit,
+    onConfirm: (String, Double, String, LocalDate) -> Unit
 ) {
-    Column {
-        MonthFilter(selectedMonth, onMonthSelected, transactions)
-        CategoryFilter(selectedCategory, onCategorySelected, categories)
+    var titleText by remember { mutableStateOf(initialTransaction?.title ?: "") }
+    var amountText by remember { mutableStateOf(initialTransaction?.amount?.let { abs(it).toString() } ?: "") }
+    var selectedCategory by remember { mutableStateOf(initialTransaction?.categoryName ?: categories.firstOrNull()?.name ?: "Outros") }
+    var selectedDate by remember { mutableStateOf(initialTransaction?.date ?: LocalDate.now()) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showCategoryDropdown by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancelar") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextField(value = titleText, onValueChange = { titleText = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth())
+                TextField(value = amountText, onValueChange = { amountText = it }, label = { Text("Valor (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.CalendarToday, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Data: ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}")
+                }
+                Box(Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { showCategoryDropdown = true }, modifier = Modifier.fillMaxWidth()) { Text("Categoria: $selectedCategory") }
+                    DropdownMenu(expanded = showCategoryDropdown, onDismissRequest = { showCategoryDropdown = false }) {
+                        categories.forEach { category ->
+                            DropdownMenuItem(text = { Text(category.name) }, onClick = { selectedCategory = category.name; showCategoryDropdown = false })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val value = amountText.toDoubleOrNull() ?: 0.0
+                if (titleText.isNotBlank() && value != 0.0) {
+                    onConfirm(titleText, value, selectedCategory, selectedDate)
+                }
+            }) { Text("Salvar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 @Composable
-fun CategoryFilter(
-    selectedCategory: String?,
-    onCategorySelected: (String?) -> Unit,
-    categories: List<Category>
-) {
+fun CategoryFilter(selectedCategory: String?, onCategorySelected: (String?) -> Unit, categories: List<Category>) {
     ScrollableTabRow(
         selectedTabIndex = if (selectedCategory == null) 0 else categories.indexOfFirst { it.name == selectedCategory } + 1,
-        edgePadding = 16.dp,
-        containerColor = Color.Transparent,
-        divider = {}
+        edgePadding = 16.dp, containerColor = Color.Transparent, divider = {}
     ) {
-        Tab(
-            selected = selectedCategory == null,
-            onClick = { onCategorySelected(null) },
-            text = { Text("Todas Categorias") }
-        )
+        Tab(selected = selectedCategory == null, onClick = { onCategorySelected(null) }, text = { Text("Todas Categorias") })
         categories.forEach { category ->
-            Tab(
-                selected = selectedCategory == category.name,
-                onClick = { onCategorySelected(category.name) },
-                text = { Text(category.name) }
-            )
+            Tab(selected = selectedCategory == category.name, onClick = { onCategorySelected(category.name) }, text = { Text(category.name) })
         }
     }
 }
 
 @Composable
-fun TransactionsListScreen(
-    transactions: List<Transaction>,
-    categories: List<Category>,
-    viewModel: FinanceViewModel
-) {
+fun TransactionsListScreen(transactions: List<Transaction>, categories: List<Category>, viewModel: FinanceViewModel) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text(
-            text = "Transações (${transactions.size})",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Text(text = "Transações (${transactions.size})", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(transactions) { transaction ->
                 TransactionItem(transaction, categories, viewModel)
             }
@@ -222,60 +290,25 @@ fun TransactionsListScreen(
 @Composable
 fun CategoriesScreen(categories: List<Category>, viewModel: FinanceViewModel) {
     var newCategoryName by remember { mutableStateOf("") }
-    
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Gerenciar Categorias", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-            TextField(
-                value = newCategoryName,
-                onValueChange = { newCategoryName = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Nova categoria") }
-            )
-            IconButton(onClick = {
-                if (newCategoryName.isNotBlank()) {
-                    viewModel.addCategory(newCategoryName)
-                    newCategoryName = ""
-                }
-            }) {
-                Icon(Icons.Default.Add, contentDescription = "Adicionar")
-            }
+            TextField(value = newCategoryName, onValueChange = { newCategoryName = it }, modifier = Modifier.weight(1f), placeholder = { Text("Nova categoria") })
+            IconButton(onClick = { if (newCategoryName.isNotBlank()) { viewModel.addCategory(newCategoryName); newCategoryName = "" } }) { Icon(Icons.Default.Add, null) }
         }
-        
         LazyColumn {
             items(categories, key = { it.id }) { category ->
                 var isEditing by remember { mutableStateOf(false) }
                 var editedName by remember { mutableStateOf(category.name) }
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (isEditing) {
-                        TextField(
-                            value = editedName,
-                            onValueChange = { editedName = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = {
-                            if (editedName.isNotBlank() && editedName != category.name) {
-                                viewModel.updateCategory(category.name, category.copy(name = editedName))
-                            }
-                            isEditing = false
-                        }) { Icon(Icons.Default.Check, contentDescription = "Salvar") }
-                        IconButton(onClick = { 
-                            isEditing = false 
-                            editedName = category.name
-                        }) { Icon(Icons.Default.Close, contentDescription = "Cancelar") }
+                        TextField(value = editedName, onValueChange = { editedName = it }, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { if (editedName.isNotBlank() && editedName != category.name) { viewModel.updateCategory(category.name, category.copy(name = editedName)) }; isEditing = false }) { Icon(Icons.Default.Check, null) }
+                        IconButton(onClick = { isEditing = false; editedName = category.name }) { Icon(Icons.Default.Close, null) }
                     } else {
                         Text(category.name, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { isEditing = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Editar")
-                        }
-                        IconButton(onClick = { viewModel.deleteCategory(category) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Excluir")
-                        }
+                        IconButton(onClick = { isEditing = true }) { Icon(Icons.Default.Edit, null) }
+                        IconButton(onClick = { viewModel.deleteCategory(category) }) { Icon(Icons.Default.Delete, null) }
                     }
                 }
             }
@@ -285,65 +318,36 @@ fun CategoriesScreen(categories: List<Category>, viewModel: FinanceViewModel) {
 
 @Composable
 fun SummaryScreen(transactions: List<Transaction>) {
-    val totalExpenses = transactions.filter { it.amount > 0 }.sumOf { it.amount }
-    val totalCredits = transactions.filter { it.amount < 0 }.sumOf { it.amount }
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        SummaryCard(totalExpenses, totalCredits)
-    }
+    val income = transactions.filter { it.categoryName == "Renda" }.sumOf { abs(it.amount) }
+    val expenses = transactions.filter { it.categoryName != "Renda" }.sumOf { abs(it.amount) }
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) { SummaryCard(expenses, -income) }
 }
 
 @Composable
 fun BreakdownScreen(transactions: List<Transaction>) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        CategoryBreakdown(transactions)
-    }
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) { CategoryBreakdown(transactions) }
 }
 
 @Composable
 fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
-    TextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        placeholder = { Text("Buscar transação...") },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-        singleLine = true,
-        shape = MaterialTheme.shapes.medium
-    )
+    TextField(value = query, onValueChange = onQueryChange, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), placeholder = { Text("Buscar transação...") }, leadingIcon = { Icon(Icons.Default.Search, null) }, singleLine = true, shape = MaterialTheme.shapes.medium)
 }
 
 @Composable
 fun MonthFilter(selectedMonth: Int?, onMonthSelected: (Int?) -> Unit, transactions: List<Transaction>) {
     val months = transactions.map { it.date.monthValue }.distinct().sorted()
     val locale = Locale.forLanguageTag("pt-BR")
-    ScrollableTabRow(
-        selectedTabIndex = if (selectedMonth == null) 0 else months.indexOf(selectedMonth) + 1,
-        edgePadding = 16.dp,
-        containerColor = Color.Transparent,
-        divider = {}
-    ) {
+    ScrollableTabRow(selectedTabIndex = if (selectedMonth == null) 0 else months.indexOf(selectedMonth) + 1, edgePadding = 16.dp, containerColor = Color.Transparent, divider = {}) {
         Tab(selected = selectedMonth == null, onClick = { onMonthSelected(null) }, text = { Text("Todos Meses") })
         months.forEach { month ->
-            Tab(
-                selected = selectedMonth == month,
-                onClick = { onMonthSelected(month) },
-                text = { 
-                    val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.SHORT, locale)
-                    Text(monthName.replaceFirstChar { it.uppercase() }) 
-                }
-            )
+            Tab(selected = selectedMonth == month, onClick = { onMonthSelected(month) }, text = { val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.SHORT, locale); Text(monthName.replaceFirstChar { it.uppercase() }) })
         }
     }
 }
 
 @Composable
 fun CategoryBreakdown(transactions: List<Transaction>) {
-    val expensesByCategory = transactions
-        .filter { it.amount > 0 }
-        .groupBy { it.categoryName }
-        .mapValues { it.value.sumOf { t -> t.amount } }
-        .toList().sortedByDescending { it.second }
-
+    val expensesByCategory = transactions.filter { it.categoryName != "Renda" }.groupBy { it.categoryName }.mapValues { it.value.sumOf { t -> abs(t.amount) } }.toList().sortedByDescending { it.second }
     if (expensesByCategory.isNotEmpty()) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -384,54 +388,24 @@ fun SummaryItem(label: String, value: Double, color: Color) {
 
 @Composable
 fun TransactionItem(transaction: Transaction, categories: List<Category>, viewModel: FinanceViewModel) {
-    var showSelectionDialog by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
     
-    if (showSelectionDialog) {
-        AlertDialog(
-            onDismissRequest = { showSelectionDialog = false },
-            title = { Text("Alterar Categoria") },
-            text = {
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
-                    items(categories) { category ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.updateTransactionCategory(transaction, category.name)
-                                    showSelectionDialog = false
-                                }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = transaction.categoryName == category.name,
-                                onClick = null 
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(category.name)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSelectionDialog = false }) { Text("Fechar") }
+    if (showEditDialog) {
+        TransactionDialog(
+            title = "Editar Transação",
+            initialTransaction = transaction,
+            categories = categories,
+            onDismiss = { showEditDialog = false },
+            onConfirm = { t, a, c, d ->
+                viewModel.updateTransaction(transaction.copy(title = t, amount = a, categoryName = c, date = d))
+                showEditDialog = false
             }
         )
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { showSelectionDialog = true }
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { showEditDialog = true }) {
+        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
                 Text(transaction.categoryName.take(1), fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -439,19 +413,10 @@ fun TransactionItem(transaction: Transaction, categories: List<Category>, viewMo
                 Text(transaction.title, fontWeight = FontWeight.Medium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(transaction.categoryName, fontSize = 12.sp, color = Color.Gray)
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.padding(start = 4.dp).size(12.dp),
-                        tint = Color.Gray
-                    )
+                    Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.padding(start = 4.dp).size(12.dp), tint = Color.Gray)
                 }
             }
-            Text(
-                text = "R$ ${"%.2f".format(transaction.amount)}",
-                fontWeight = FontWeight.Bold,
-                color = if (transaction.amount > 0) Color(0xFFD32F2F) else Color(0xFF388E3C)
-            )
+            Text(text = "R$ ${"%.2f".format(transaction.amount)}", fontWeight = FontWeight.Bold, color = if (transaction.categoryName == "Renda") Color(0xFF388E3C) else Color(0xFFD32F2F))
         }
     }
 }

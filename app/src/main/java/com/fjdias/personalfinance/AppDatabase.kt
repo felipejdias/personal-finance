@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Transaction::class, Category::class], version = 4, exportSchema = false)
+@Database(entities = [Transaction::class, Category::class], version = 5, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
@@ -28,7 +28,6 @@ abstract class AppDatabase : RoomDatabase() {
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
-                        // Inserção em uma thread separada para não travar a UI
                         Thread {
                             val cursor = db.query("SELECT COUNT(*) FROM categories")
                             cursor.moveToFirst()
@@ -36,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
                             cursor.close()
                             
                             if (count == 0) {
+                                db.execSQL("INSERT INTO categories (name) VALUES ('Renda')")
                                 db.execSQL("INSERT INTO categories (name) VALUES ('Alimentação')")
                                 db.execSQL("INSERT INTO categories (name) VALUES ('Transporte')")
                                 db.execSQL("INSERT INTO categories (name) VALUES ('Lazer')")

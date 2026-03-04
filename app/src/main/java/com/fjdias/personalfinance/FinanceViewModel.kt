@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
@@ -58,9 +59,22 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun updateTransactionCategory(transaction: Transaction, newCategoryName: String) {
+    fun updateTransaction(transaction: Transaction) {
         viewModelScope.launch(Dispatchers.IO) {
-            transactionDao.update(transaction.copy(categoryName = newCategoryName))
+            transactionDao.update(transaction)
+        }
+    }
+
+    fun addManualTransaction(title: String, amount: Double, categoryName: String, date: LocalDate) {
+        viewModelScope.launch(Dispatchers.IO) {
+            transactionDao.insert(
+                Transaction(
+                    title = title,
+                    amount = amount,
+                    categoryName = categoryName,
+                    date = date
+                )
+            )
         }
     }
 }
