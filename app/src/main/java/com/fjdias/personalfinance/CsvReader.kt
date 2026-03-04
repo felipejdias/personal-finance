@@ -3,6 +3,8 @@ package com.fjdias.personalfinance
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.io.OutputStream
+import java.io.PrintWriter
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -25,7 +27,12 @@ class CsvReader {
                             val date = LocalDate.parse(parts[0], formatter)
                             val title = parts[1]
                             val amount = parts[2].toDouble()
-                            val categoryName = categorize(title, amount)
+                            // Se houver uma 4ª coluna (categoria), usamos ela. Caso contrário, categorizamos automaticamente.
+                            val categoryName = if (parts.size >= 4 && parts[3].isNotBlank()) {
+                                parts[3]
+                            } else {
+                                categorize(title, amount)
+                            }
                             transactions.add(Transaction(date = date, title = title, amount = amount, categoryName = categoryName))
                         } catch (e: Exception) {
                             // Skip malformed lines
@@ -38,6 +45,18 @@ class CsvReader {
             e.printStackTrace()
         }
         return transactions
+    }
+
+    fun exportTransactions(outputStream: OutputStream, transactions: List<Transaction>) {
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        PrintWriter(outputStream).use { writer ->
+            // Header
+            writer.println("date,title,amount,category")
+            transactions.forEach { t ->
+                val titleEscaped = if (t.title.contains(",")) "\"${t.title}\"" else t.title
+                writer.println("${t.date.format(formatter)},$titleEscaped,${t.amount},${t.categoryName}")
+            }
+        }
     }
 
     private fun categorize(title: String, amount: Double): String {

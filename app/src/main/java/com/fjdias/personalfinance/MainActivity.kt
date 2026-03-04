@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
                 var selectedMonth by remember { mutableStateOf<Int?>(null) }
                 var selectedCategoryName by remember { mutableStateOf<String?>(null) }
                 var showDeleteDialog by remember { mutableStateOf(false) }
+                var showExportDialog by remember { mutableStateOf(false) }
                 var showAddTransactionDialog by remember { mutableStateOf(false) }
                 var currentScreen by remember { mutableStateOf(FinanceScreen.Transactions) }
 
@@ -64,6 +65,14 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.GetContent()
                 ) { uri: Uri? ->
                     uri?.let { viewModel.importCsv(context, it) }
+                }
+
+                val exportLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.CreateDocument("text/csv")
+                ) { uri: Uri? ->
+                    uri?.let { 
+                        viewModel.exportCsv(context, it, allTransactions)
+                    }
                 }
 
                 val transactionsForList = allTransactions.filter {
@@ -113,6 +122,9 @@ class MainActivity : ComponentActivity() {
                             CenterAlignedTopAppBar(
                                 title = { Text("Personal Finance") },
                                 actions = {
+                                    IconButton(onClick = { showExportDialog = true }) {
+                                        Icon(Icons.Default.SaveAlt, contentDescription = "Exportar Backup")
+                                    }
                                     IconButton(onClick = { filePickerLauncher.launch("text/*") }) {
                                         Icon(Icons.Default.FileUpload, contentDescription = "Importar CSV")
                                     }
@@ -206,10 +218,12 @@ fun TransactionDialog(
     var showDatePicker by remember { mutableStateOf(false) }
     var showCategoryDropdown by remember { mutableStateOf(false) }
 
+    // Corrigindo a estabilidade do DatePickerState usando remember e chaves estáveis
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    )
+
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
@@ -235,11 +249,16 @@ fun TransactionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextField(value = titleText, onValueChange = { titleText = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth())
                 TextField(value = amountText, onValueChange = { amountText = it }, label = { Text("Valor (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                
+                OutlinedButton(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Icon(Icons.Default.CalendarToday, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Data: ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}")
                 }
+
                 Box(Modifier.fillMaxWidth()) {
                     OutlinedButton(onClick = { showCategoryDropdown = true }, modifier = Modifier.fillMaxWidth()) { Text("Categoria: $selectedCategory") }
                     DropdownMenu(expanded = showCategoryDropdown, onDismissRequest = { showCategoryDropdown = false }) {
@@ -337,7 +356,7 @@ fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
 fun MonthFilter(selectedMonth: Int?, onMonthSelected: (Int?) -> Unit, transactions: List<Transaction>) {
     val months = transactions.map { it.date.monthValue }.distinct().sorted()
     val locale = Locale.forLanguageTag("pt-BR")
-    ScrollableTabRow(selectedTabIndex = if (selectedMonth == null) 0 else months.indexOf(selectedMonth) + 1, edgePadding = 16.dp, containerColor = Color.Transparent, divider = {}) {
+    ScrollableTabRow(selectedTabIndex = if (selectedMonth == null) 0 else months.indexOf(selectedMonth) + 1, edgePadding = 16.dp, containerColor = Color.Transparent, divider = {} ) {
         Tab(selected = selectedMonth == null, onClick = { onMonthSelected(null) }, text = { Text("Todos Meses") })
         months.forEach { month ->
             Tab(selected = selectedMonth == month, onClick = { onMonthSelected(month) }, text = { val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.SHORT, locale); Text(monthName.replaceFirstChar { it.uppercase() }) })
@@ -416,7 +435,7 @@ fun TransactionItem(transaction: Transaction, categories: List<Category>, viewMo
                     Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.padding(start = 4.dp).size(12.dp), tint = Color.Gray)
                 }
             }
-            Text(text = "R$ ${"%.2f".format(transaction.amount)}", fontWeight = FontWeight.Bold, color = if (transaction.categoryName == "Renda") Color(0xFF388E3C) else Color(0xFFD32F2F))
+            Text(text = "R$ ${"%.2f".format(transaction.amount)}", fontWeight = FontWeight.Bold, color = if (transaction.categoryName == "Renda") Color(0xFF388E3C) else Color(0xFFD32F2F) )
         }
     }
 }

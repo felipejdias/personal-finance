@@ -32,6 +32,18 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun exportCsv(context: Context, uri: Uri, transactions: List<Transaction>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    csvReader.exportTransactions(outputStream, transactions)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun clearAll() {
         viewModelScope.launch(Dispatchers.IO) {
             transactionDao.deleteAll()
