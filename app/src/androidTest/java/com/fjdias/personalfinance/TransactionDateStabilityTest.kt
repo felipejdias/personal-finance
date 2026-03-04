@@ -1,7 +1,7 @@
 package com.fjdias.personalfinance
 
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -25,12 +25,12 @@ class TransactionDateStabilityTest {
         composeTestRule.onNodeWithText("Nova Transação").assertIsDisplayed()
 
         // 4. Clicar no botão de selecionar Data
-        // Correção: usando hasText com substring = true para encontrar o botão que contém "Data:"
         composeTestRule.onNode(hasText("Data:", substring = true)).performClick()
 
-        // 5. Verificar se o DatePicker (calendário) está visível e PERMANECE visível
-        // Procuramos por elementos comuns do DatePicker do Material 3
-        composeTestRule.onNodeWithText("OK").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Cancelar").assertIsDisplayed()
+        // 5. Verificar se o DatePicker (calendário) está visível
+        // Buscamos o botão Cancelar do DatePickerDialog. 
+        // Usamos hasAnyAncestor(isDialog()) para evitar conflito com o botão Cancelar do diálogo pai
+        composeTestRule.onNode(hasText("Cancelar") and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        composeTestRule.onNode(hasText("OK") and hasAnyAncestor(isDialog())).assertIsDisplayed()
     }
 }

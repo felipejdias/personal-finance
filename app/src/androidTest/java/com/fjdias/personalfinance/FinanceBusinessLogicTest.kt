@@ -25,9 +25,14 @@ class FinanceBusinessLogicTest {
         composeTestRule.onNodeWithContentDescription("Adicionar Transação").performClick()
         composeTestRule.onNodeWithText("Título").performTextInput("Internet Fibra")
         composeTestRule.onNodeWithText("Valor (R$)").performTextInput("150.00")
-        // Selecionar categoria diferente de Renda
-        composeTestRule.onNodeWithText(text = "Categoria:", substring = true).performClick()
-        composeTestRule.onNodeWithText("Outros").performClick() 
+        
+        // Clicar no botão de categoria no diálogo
+        composeTestRule.onNode(hasText("Categoria:", substring = true)).performClick()
+        
+        // Selecionar "Outros" (garantido existir como fallback)
+        // Usamos hasAnyAncestor para garantir que clicamos no item do menu e não em um filtro da tela principal
+        composeTestRule.onNode(hasText("Outros") and hasAnyAncestor(isPopup())).performClick()
+        
         composeTestRule.onNodeWithText("Salvar").performClick()
 
         // Resultado Esperado: Deve aparecer na lista
@@ -36,23 +41,30 @@ class FinanceBusinessLogicTest {
 
     @Test
     fun scenario5_testGlobalCategoryRenaming() {
-        // 1. Criar transação na categoria "Lazer"
+        // 1. Criar categoria customizada primeiro
+        composeTestRule.onNodeWithText("Categorias").performClick()
+        composeTestRule.onNodeWithText("Nova categoria").performTextInput("Lazer Teste")
+        composeTestRule.onNodeWithContentDescription("Adicionar").performClick()
+
+        // 2. Criar transação na categoria "Lazer Teste"
         composeTestRule.onNodeWithText("Transações").performClick()
         composeTestRule.onNodeWithContentDescription("Adicionar Transação").performClick()
         composeTestRule.onNodeWithText("Título").performTextInput("Cinema")
         composeTestRule.onNodeWithText("Valor (R$)").performTextInput("60.00")
-        composeTestRule.onNodeWithText(text = "Categoria:", substring = true).performClick()
-        composeTestRule.onNodeWithText("Lazer").performClick()
+        composeTestRule.onNode(hasText("Categoria:", substring = true)).performClick()
+        composeTestRule.onNode(hasText("Lazer Teste") and hasAnyAncestor(isPopup())).performClick()
         composeTestRule.onNodeWithText("Salvar").performClick()
 
-        // 2. Ir para Categorias e Renomear "Lazer" para "Diversão"
+        // 3. Ir para Categorias e Renomear "Lazer Teste" para "Diversão"
         composeTestRule.onNodeWithText("Categorias").performClick()
-        // Clicar no botão editar da categoria Lazer
-        composeTestRule.onNode(hasAnyAncestor(hasText("Lazer")) and hasContentDescription("Editar")).performClick()
-        composeTestRule.onNode(hasText("Lazer") and hasSetTextAction()).performTextReplacement("Diversão")
+        // Clicar no botão editar da categoria Lazer Teste
+        composeTestRule.onNode(hasAnyAncestor(hasText("Lazer Teste")) and hasContentDescription("Editar")).performClick()
+        
+        // Localizar o TextField de edição (que tem o texto atual)
+        composeTestRule.onNode(hasText("Lazer Teste") and hasSetTextAction()).performTextReplacement("Diversão")
         composeTestRule.onNodeWithContentDescription("Salvar").performClick()
 
-        // 3. Voltar para Transações e verificar se a categoria mudou no item
+        // 4. Voltar para Transações e verificar se a categoria mudou no item
         composeTestRule.onNodeWithText("Transações").performClick()
         composeTestRule.onNodeWithText("Cinema").assertIsDisplayed()
         composeTestRule.onNodeWithText("Diversão").assertIsDisplayed()
@@ -67,23 +79,25 @@ class FinanceBusinessLogicTest {
         composeTestRule.onNodeWithContentDescription("Adicionar Transação").performClick()
         composeTestRule.onNodeWithText("Título").performTextInput("Salário")
         composeTestRule.onNodeWithText("Valor (R$)").performTextInput("5000.00")
-        composeTestRule.onNodeWithText(text = "Categoria:", substring = true).performClick()
-        composeTestRule.onNodeWithText("Renda").performClick()
+        composeTestRule.onNode(hasText("Categoria:", substring = true)).performClick()
+        // Selecionar Renda no menu suspenso
+        composeTestRule.onNode(hasText("Renda") and hasAnyAncestor(isPopup())).performClick()
         composeTestRule.onNodeWithText("Salvar").performClick()
 
         // Adicionar Gasto
         composeTestRule.onNodeWithContentDescription("Adicionar Transação").performClick()
         composeTestRule.onNodeWithText("Título").performTextInput("Aluguel")
         composeTestRule.onNodeWithText("Valor (R$)").performTextInput("1200.00")
-        composeTestRule.onNodeWithText(text = "Categoria:", substring = true).performClick()
-        composeTestRule.onNodeWithText("Alimentação").performClick()
+        composeTestRule.onNode(hasText("Categoria:", substring = true)).performClick()
+        // Selecionar Outros no menu suspenso
+        composeTestRule.onNode(hasText("Outros") and hasAnyAncestor(isPopup())).performClick()
         composeTestRule.onNodeWithText("Salvar").performClick()
 
         // Ir para Resumo
         composeTestRule.onNodeWithText("Resumo").performClick()
 
         // Resultado Esperado: Renda em Entradas, Aluguel em Saídas
-        // Nota: O formato na UI pode variar, aqui buscamos os valores formatados
+        // Usamos useUnmergedTree para encontrar os textos dentro dos SummaryItems se necessário
         composeTestRule.onNodeWithText("R$ 5000,00").assertIsDisplayed() // Entradas
         composeTestRule.onNodeWithText("R$ 1200,00").assertIsDisplayed() // Saídas
     }

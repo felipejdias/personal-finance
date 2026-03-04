@@ -27,12 +27,20 @@ class CsvReader {
                             val date = LocalDate.parse(parts[0], formatter)
                             val title = parts[1]
                             val amount = parts[2].toDouble()
-                            // Se houver uma 4ª coluna (categoria), usamos ela. Caso contrário, categorizamos automaticamente.
-                            val categoryName = if (parts.size >= 4 && parts[3].isNotBlank()) {
+                            
+                            // Se houver uma 4ª coluna (categoria), usamos ela. 
+                            // Caso contrário, usamos a lógica de categorização.
+                            var categoryName = if (parts.size >= 4 && parts[3].isNotBlank()) {
                                 parts[3]
                             } else {
-                                categorize(title, amount)
+                                "Outros"
                             }
+
+                            // Forçar "Renda" se a categoria for "renda" (case insensitive)
+                            if (categoryName.equals("renda", ignoreCase = true)) {
+                                categoryName = "Renda"
+                            }
+
                             transactions.add(Transaction(date = date, title = title, amount = amount, categoryName = categoryName))
                         } catch (e: Exception) {
                             // Skip malformed lines
@@ -50,48 +58,11 @@ class CsvReader {
     fun exportTransactions(outputStream: OutputStream, transactions: List<Transaction>) {
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         PrintWriter(outputStream).use { writer ->
-            // Header
             writer.println("date,title,amount,category")
             transactions.forEach { t ->
                 val titleEscaped = if (t.title.contains(",")) "\"${t.title}\"" else t.title
                 writer.println("${t.date.format(formatter)},$titleEscaped,${t.amount},${t.categoryName}")
             }
-        }
-    }
-
-    private fun categorize(title: String, amount: Double): String {
-        if (amount < 0) return "Entrada"
-        
-        val normalizedTitle = title.lowercase()
-        return when {
-            normalizedTitle.contains("ifood") || normalizedTitle.contains("restaurante") || 
-            normalizedTitle.contains("delicias") || normalizedTitle.contains("sushi") ||
-            normalizedTitle.contains("padaria") || normalizedTitle.contains("outback") ||
-            normalizedTitle.contains("frutas") || normalizedTitle.contains("supermercado") ||
-            normalizedTitle.contains("extra") || normalizedTitle.contains("carrefour") ||
-            normalizedTitle.contains("hortifruti") || normalizedTitle.contains("swift") ||
-            normalizedTitle.contains("vila das frutas") -> "Alimentação"
-            
-            normalizedTitle.contains("posto") || normalizedTitle.contains("nutag") || 
-            normalizedTitle.contains("zul") || normalizedTitle.contains("estacion") ||
-            normalizedTitle.contains("uber") -> "Transporte"
-            
-            normalizedTitle.contains("petlove") || normalizedTitle.contains("urbanpet") ||
-            normalizedTitle.contains("vet") || normalizedTitle.contains("pet") -> "Saúde"
-            
-            normalizedTitle.contains("drogasil") || normalizedTitle.contains("drogaria") ||
-            normalizedTitle.contains("raia") || normalizedTitle.contains("saude") -> "Saúde"
-            
-            normalizedTitle.contains("sony") || normalizedTitle.contains("playstation") ||
-            normalizedTitle.contains("steam") || normalizedTitle.contains("nexusmods") ||
-            normalizedTitle.contains("youtube") || normalizedTitle.contains("lazer") -> "Lazer"
-            
-            normalizedTitle.contains("nucel") || normalizedTitle.contains("seguro") ||
-            normalizedTitle.contains("google") || normalizedTitle.contains("airbnb") ||
-            normalizedTitle.contains("leroy") || normalizedTitle.contains("kabum") ||
-            normalizedTitle.contains("mercadolivre") || normalizedTitle.contains("mercadopago") -> "Serviços"
-            
-            else -> "Outros"
         }
     }
 

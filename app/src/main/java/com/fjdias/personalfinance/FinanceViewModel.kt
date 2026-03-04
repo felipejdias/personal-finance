@@ -24,6 +24,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             try {
                 context.contentResolver.openInputStream(uri)?.use { inputStream ->
                     val transactions = csvReader.readTransactions(inputStream)
+                    
+                    // Extrair categorias únicas do CSV e garantir que existam no banco
+                    val categoriesInCsv = transactions.map { it.categoryName }.distinct()
+                    categoriesInCsv.forEach { name ->
+                        categoryDao.insert(Category(name = name))
+                    }
+                    
                     transactionDao.insertAll(transactions)
                 }
             } catch (e: Exception) {
@@ -47,6 +54,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun clearAll() {
         viewModelScope.launch(Dispatchers.IO) {
             transactionDao.deleteAll()
+            // Mantemos as categorias para não perder as definições do usuário
         }
     }
 
@@ -79,6 +87,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     fun addManualTransaction(title: String, amount: Double, categoryName: String, date: LocalDate) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Garante que a categoria existe ao adicionar manualmente
+            categoryDao.insert(Category(name = categoryName))
+
             transactionDao.insert(
                 Transaction(
                     title = title,

@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 
                 var searchQuery by remember { mutableStateOf("") }
+                var selectedYear by remember { mutableStateOf<Int?>(null) }
                 var selectedMonth by remember { mutableStateOf<Int?>(null) }
                 var selectedCategoryName by remember { mutableStateOf<String?>(null) }
                 var showDeleteDialog by remember { mutableStateOf(false) }
@@ -67,6 +68,7 @@ class MainActivity : ComponentActivity() {
                     uri?.let { viewModel.importCsv(context, it) }
                 }
 
+                // Launcher para criar o arquivo CSV
                 val exportLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.CreateDocument("text/csv")
                 ) { uri: Uri? ->
@@ -77,13 +79,16 @@ class MainActivity : ComponentActivity() {
 
                 val transactionsForList = allTransactions.filter {
                     val matchesSearch = it.title.contains(searchQuery, ignoreCase = true)
+                    val matchesYear = selectedYear == null || it.date.year == selectedYear
                     val matchesMonth = selectedMonth == null || it.date.monthValue == selectedMonth
                     val matchesCategory = selectedCategoryName == null || it.categoryName == selectedCategoryName
-                    matchesSearch && matchesMonth && matchesCategory
+                    matchesSearch && matchesYear && matchesMonth && matchesCategory
                 }
 
                 val transactionsForAnalytics = allTransactions.filter {
-                    selectedMonth == null || it.date.monthValue == selectedMonth
+                    val matchesYear = selectedYear == null || it.date.year == selectedYear
+                    val matchesMonth = selectedMonth == null || it.date.monthValue == selectedMonth
+                    matchesYear && matchesMonth
                 }
 
                 if (showDeleteDialog) {
@@ -99,6 +104,35 @@ class MainActivity : ComponentActivity() {
                         },
                         dismissButton = {
                             TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") }
+                        }
+                    )
+                }
+
+                if (showExportDialog) {
+                    var fileName by remember { mutableStateOf("backup_finance_${LocalDate.now()}.csv") }
+                    AlertDialog(
+                        onDismissRequest = { showExportDialog = false },
+                        title = { Text("Exportar Backup") },
+                        text = {
+                            Column {
+                                Text("Escolha o nome do arquivo:")
+                                Spacer(modifier = Modifier.height(8.dp))
+                                TextField(
+                                    value = fileName,
+                                    onValueChange = { fileName = it },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                // Primeiro lança o seletor, depois fecha o diálogo
+                                exportLauncher.launch(fileName)
+                                showExportDialog = false
+                            }) { Text("Escolher Local") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showExportDialog = false }) { Text("Cancelar") }
                         }
                     )
                 }
@@ -135,8 +169,17 @@ class MainActivity : ComponentActivity() {
                             )
                             
                             if (currentScreen != FinanceScreen.Categories) {
+                                YearFilter(
+                                    selectedYear = selectedYear,
+                                    onYearSelected = { 
+                                        selectedYear = it
+                                        selectedMonth = null 
+                                    },
+                                    transactions = allTransactions
+                                )
                                 MonthFilter(
                                     selectedMonth = selectedMonth,
+                                    selectedYear = selectedYear,
                                     onMonthSelected = { selectedMonth = it },
                                     transactions = allTransactions
                                 )
@@ -213,12 +256,11 @@ fun TransactionDialog(
 ) {
     var titleText by remember { mutableStateOf(initialTransaction?.title ?: "") }
     var amountText by remember { mutableStateOf(initialTransaction?.amount?.let { abs(it).toString() } ?: "") }
-    var selectedCategory by remember { mutableStateOf(initialTransaction?.categoryName ?: categories.firstOrNull()?.name ?: "Outros") }
+    var selectedCategory by remember { mutableStateOf(initialTransaction?.categoryName ?: "Outros") }
     var selectedDate by remember { mutableStateOf(initialTransaction?.date ?: LocalDate.now()) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showCategoryDropdown by remember { mutableStateOf(false) }
 
-    // Corrigindo a estabilidade do DatePickerState usando remember e chaves estáveis
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
     )
@@ -249,21 +291,19 @@ fun TransactionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextField(value = titleText, onValueChange = { titleText = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth())
                 TextField(value = amountText, onValueChange = { amountText = it }, label = { Text("Valor (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                
-                OutlinedButton(
-                    onClick = { showDatePicker = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.CalendarToday, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Data: ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}")
                 }
-
                 Box(Modifier.fillMaxWidth()) {
                     OutlinedButton(onClick = { showCategoryDropdown = true }, modifier = Modifier.fillMaxWidth()) { Text("Categoria: $selectedCategory") }
                     DropdownMenu(expanded = showCategoryDropdown, onDismissRequest = { showCategoryDropdown = false }) {
                         categories.forEach { category ->
                             DropdownMenuItem(text = { Text(category.name) }, onClick = { selectedCategory = category.name; showCategoryDropdown = false })
+                        }
+                        if (categories.none { it.name == "Outros" }) {
+                            DropdownMenuItem(text = { Text("Outros") }, onClick = { selectedCategory = "Outros"; showCategoryDropdown = false })
                         }
                     }
                 }
@@ -279,6 +319,43 @@ fun TransactionDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
+}
+
+@Composable
+fun YearFilter(selectedYear: Int?, onYearSelected: (Int?) -> Unit, transactions: List<Transaction>) {
+    val years = transactions.map { it.date.year }.distinct().sortedDescending()
+    ScrollableTabRow(
+        selectedTabIndex = if (selectedYear == null) 0 else years.indexOf(selectedYear) + 1,
+        edgePadding = 16.dp, containerColor = Color.Transparent, divider = {}
+    ) {
+        Tab(selected = selectedYear == null, onClick = { onYearSelected(null) }, text = { Text("Todos Anos") })
+        years.forEach { year ->
+            Tab(selected = selectedYear == year, onClick = { onYearSelected(year) }, text = { Text(year.toString()) })
+        }
+    }
+}
+
+@Composable
+fun MonthFilter(selectedMonth: Int?, selectedYear: Int?, onMonthSelected: (Int?) -> Unit, transactions: List<Transaction>) {
+    val filteredTransactions = if (selectedYear != null) {
+        transactions.filter { it.date.year == selectedYear }
+    } else {
+        transactions
+    }
+    val months = filteredTransactions.map { it.date.monthValue }.distinct().sorted()
+    val locale = Locale.forLanguageTag("pt-BR")
+    ScrollableTabRow(
+        selectedTabIndex = if (selectedMonth == null) 0 else months.indexOf(selectedMonth) + 1,
+        edgePadding = 16.dp, containerColor = Color.Transparent, divider = {} 
+    ) {
+        Tab(selected = selectedMonth == null, onClick = { onMonthSelected(null) }, text = { Text("Todos Meses") })
+        months.forEach { month ->
+            Tab(selected = selectedMonth == month, onClick = { onMonthSelected(month) }, text = { 
+                val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.SHORT, locale)
+                Text(monthName.replaceFirstChar { it.uppercase() }) 
+            })
+        }
+    }
 }
 
 @Composable
@@ -326,8 +403,12 @@ fun CategoriesScreen(categories: List<Category>, viewModel: FinanceViewModel) {
                         IconButton(onClick = { isEditing = false; editedName = category.name }) { Icon(Icons.Default.Close, null) }
                     } else {
                         Text(category.name, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { isEditing = true }) { Icon(Icons.Default.Edit, null) }
-                        IconButton(onClick = { viewModel.deleteCategory(category) }) { Icon(Icons.Default.Delete, null) }
+                        if (category.name != "Renda") {
+                            IconButton(onClick = { isEditing = true }) { Icon(Icons.Default.Edit, null) }
+                            IconButton(onClick = { viewModel.deleteCategory(category) }) { Icon(Icons.Default.Delete, null) }
+                        } else {
+                            Icon(Icons.Default.Lock, contentDescription = "Categoria Fixa", modifier = Modifier.padding(12.dp).size(18.dp), tint = Color.Gray)
+                        }
                     }
                 }
             }
@@ -350,18 +431,6 @@ fun BreakdownScreen(transactions: List<Transaction>) {
 @Composable
 fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
     TextField(value = query, onValueChange = onQueryChange, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), placeholder = { Text("Buscar transação...") }, leadingIcon = { Icon(Icons.Default.Search, null) }, singleLine = true, shape = MaterialTheme.shapes.medium)
-}
-
-@Composable
-fun MonthFilter(selectedMonth: Int?, onMonthSelected: (Int?) -> Unit, transactions: List<Transaction>) {
-    val months = transactions.map { it.date.monthValue }.distinct().sorted()
-    val locale = Locale.forLanguageTag("pt-BR")
-    ScrollableTabRow(selectedTabIndex = if (selectedMonth == null) 0 else months.indexOf(selectedMonth) + 1, edgePadding = 16.dp, containerColor = Color.Transparent, divider = {} ) {
-        Tab(selected = selectedMonth == null, onClick = { onMonthSelected(null) }, text = { Text("Todos Meses") })
-        months.forEach { month ->
-            Tab(selected = selectedMonth == month, onClick = { onMonthSelected(month) }, text = { val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.SHORT, locale); Text(monthName.replaceFirstChar { it.uppercase() }) })
-        }
-    }
 }
 
 @Composable
@@ -408,7 +477,6 @@ fun SummaryItem(label: String, value: Double, color: Color) {
 @Composable
 fun TransactionItem(transaction: Transaction, categories: List<Category>, viewModel: FinanceViewModel) {
     var showEditDialog by remember { mutableStateOf(false) }
-    
     if (showEditDialog) {
         TransactionDialog(
             title = "Editar Transação",
@@ -421,7 +489,6 @@ fun TransactionItem(transaction: Transaction, categories: List<Category>, viewMo
             }
         )
     }
-
     Card(modifier = Modifier.fillMaxWidth().clickable { showEditDialog = true }) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
