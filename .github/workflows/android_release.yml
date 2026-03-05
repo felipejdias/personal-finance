@@ -1,0 +1,66 @@
+name: Android CI/CD Release
+
+on:
+  workflow_dispatch: # Botão manual que você queria
+
+jobs:
+  build:
+    runs-on: macos-latest
+    # Permissões necessárias para o script criar tags e releases
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necessário para calcular a próxima tag corretamente
+
+      - name: set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # PASSO NOVO: Gerar o número da próxima versão automaticamente
+      - name: Generate Tag Name
+        id: tag_gen
+        run: |
+          # Pega a última tag (ex: v1.0.5), se não existir começa com v1.0.0
+          LATEST_TAG=$(git describe --tags --abp=0 2>/dev/null || echo "v1.0.0")
+          # Incrementa o último número (ex: 5 -> 6)
+          NEW_TAG=$(echo $LATEST_TAG | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "Gerando versão: $NEW_TAG"
+
+      - name: Run UI Tests and Generate Coverage
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: google_apis
+          arch: x86_64
+          script: ./gradlew jacocoTestReport
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      # PASSO NOVO: Criar a Tag e a Release no GitHub com o APK
+      - name: Create GitHub Release and Push Tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_gen.outputs.new_tag }}
+          name: Release ${{ steps.tag_gen.outputs.new_tag }}
+          body: "Versão gerada automaticamente via GitHub Actions após aprovação nos testes."
+          files: app/build/outputs/apk/release/app-release-unsigned.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Coverage-Report
+          path: app/build/reports/jacoco/jacocoTestReport/html/
