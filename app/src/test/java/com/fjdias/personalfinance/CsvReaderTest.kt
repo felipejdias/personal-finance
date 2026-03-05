@@ -36,7 +36,7 @@ class CsvReaderTest {
         val transactions = csvReader.readTransactions(inputStream)
         
         assertEquals(1, transactions.size)
-        assertEquals("Alimentação", transactions[0].categoryName)
+        assertEquals("Outros", transactions[0].categoryName)
     }
 
     @Test

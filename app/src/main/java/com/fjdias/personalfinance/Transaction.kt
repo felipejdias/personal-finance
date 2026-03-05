@@ -1,11 +1,15 @@
 package com.fjdias.personalfinance
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import java.time.LocalDate
 
-@Entity(tableName = "categories")
+@Entity(
+    tableName = "categories",
+    indices = [Index(value = ["name"], unique = true)]
+)
 data class Category(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String

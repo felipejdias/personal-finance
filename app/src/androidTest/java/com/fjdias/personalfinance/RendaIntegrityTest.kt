@@ -18,14 +18,14 @@ class RendaIntegrityTest {
         // 1. Ir para a tela de Categorias
         composeTestRule.onNodeWithText("Categorias").performClick()
 
-        // 2. Verificar se a categoria Renda existe
-        composeTestRule.onNodeWithText("Renda").assertIsDisplayed()
+        // 2. Verificar se a categoria Renda existe na lista usando a tag
+        composeTestRule.onNodeWithTag("CategoryNameText_Renda").assertIsDisplayed()
 
         // 3. Verificar se o ícone de cadeado (Locked) aparece para a Renda
-        // e se os botões de Editar/Excluir NÃO aparecem para ela
-        composeTestRule.onNodeWithContentDescription("Categoria Fixa").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("LockIcon_Renda").assertIsDisplayed()
         
-        // Buscamos especificamente por um nó que tenha o texto Renda e tentamos achar botões de edição ao lado
-        // Se a lógica estiver correta, não haverá botões de ação para este nó específico
+        // 4. Garantir que NÃO existem botões de Editar ou Excluir para a Renda
+        composeTestRule.onNodeWithTag("EditCategoryButton_Renda").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("DeleteCategoryButton_Renda").assertDoesNotExist()
     }
 }

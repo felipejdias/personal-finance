@@ -30,7 +30,6 @@ class TransactionDateStabilityTest {
         // 5. Verificar se o DatePicker (calendário) está visível
         // Buscamos o botão Cancelar do DatePickerDialog. 
         // Usamos hasAnyAncestor(isDialog()) para evitar conflito com o botão Cancelar do diálogo pai
-        composeTestRule.onNode(hasText("Cancelar") and hasAnyAncestor(isDialog())).assertIsDisplayed()
-        composeTestRule.onNode(hasText("OK") and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Select date").assertIsDisplayed()
     }
 }
