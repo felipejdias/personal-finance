@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.kapt)
+    id("jacoco")
 }
 
 android {
@@ -20,6 +21,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            enableUnitTestCoverage = true
+            enableAndroidTestCoverage = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -64,4 +69,60 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+
+tasks.withType<Test> {
+    configure<JacocoTaskExtension> {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+}
+
+val jacocoTestReport by tasks.registering(JacocoReport::class) {
+    // Agora depende de ambos os tipos de testes
+    dependsOn("testDebugUnitTest", "connectedDebugAndroidTest")
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+
+    val fileFilter = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
+        "**/*Test*.*", "android/**/*.*", "**/androidx/**/*.*",
+        "**/*Dagger*.*", "**/*MembersInjector*.*", "**/*_Factory*.*",
+        "**/*_ProvideField*.*", "**/*_ViewBinding*.*", "**/*_Impl*.*"
+    )
+
+    // Onde estão as classes compiladas do Kotlin
+    val debugTree = fileTree("${project.layout.buildDirectory.get()}/tmp/kotlin-classes/debug") {
+        exclude(fileFilter)
+    }
+
+    // Onde está o seu código fonte
+    sourceDirectories.setFrom(files("${project.projectDir}/src/main/java", "${project.projectDir}/src/main/kotlin"))
+    classDirectories.setFrom(files(debugTree))
+
+    // AQUI ESTÁ O SEGREDO: Unir os dados de execução dos dois testes
+    executionData.setFrom(fileTree("${project.layout.buildDirectory.get()}") {
+        include(
+            "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec", // Unitários
+            "outputs/code_coverage/debugAndroidTest/connected/*/*.ec" // UI/AndroidTest
+        )
+    })
+}
+
+tasks.register("buildAndCheckSafe") {
+    group = "Custom"
+    description = "Roda todos os testes, gera relatório de cobertura e cria o APK de Release se tudo estiver OK."
+
+    // Define a ordem: 1. Testes e Cobertura -> 2. Build do APK
+    dependsOn(jacocoTestReport)
+    finalizedBy("assembleRelease")
+
+    doLast {
+        println("✅ Todos os testes passaram e o relatório de cobertura foi gerado!")
+        println("📦 Gerando APK de Release...")
+    }
 }

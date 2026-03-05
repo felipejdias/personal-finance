@@ -1,8 +1,12 @@
 package com.fjdias.personalfinance
 
+import android.content.Context
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,7 +17,14 @@ class FinanceBusinessLogicTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    @Test
+    @Before
+    fun createDb() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+    }
+
+
+        @Test
     fun scenario3_testManualExpenseInsertion() {
         composeTestRule.onNodeWithTag("NavTransactions").performClick()
         composeTestRule.onNodeWithTag("AddTransactionFAB").performClick()
